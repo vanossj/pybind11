@@ -1675,6 +1675,34 @@ public:
     }
 };
 
+/**
+ * Wrapper to generate a new Python warning type.
+ *
+ * This should only be used with PyErr_SetString for now.
+ * It is not (yet) possible to use as a py::base.
+ * Template type argument is reserved for future use.
+ */
+template <typename type>
+class warning : private exception {
+public:
+    warning() = default;
+    warning(handle scope, const char *name, PyObject *base = PyExc_Warning) : exception(scope, name, base) {}
+};
+
+//TODO: wrap default python warnings
+
+void warn(const char * warning, handle category=PyExc_UserWarning, Py_ssize_t stack=1) {
+    auto err = PyObject_IsInstance(category.ptr(), PyExc_Warning);
+    if (err == -1) {
+        throw new pybind11::error_already_set;
+    }
+    else if (err == 0) {
+        throw std::invalid_argument("category must be subclass of `Warning`");
+    }
+    if (PyErr_WarnEx(category.ptr(), warning, stack) == -1) 
+        throw new pybind11::error_already_set;
+}
+
 NAMESPACE_BEGIN(detail)
 // Returns a reference to a function-local static exception object used in the simple
 // register_exception approach below.  (It would be simpler to have the static local variable
