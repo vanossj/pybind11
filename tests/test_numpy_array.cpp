@@ -186,6 +186,11 @@ TEST_SUBMODULE(numpy_array, sm) {
     sm.def("overloaded5", [](py::array_t<unsigned int>) { return "unsigned int"; });
     sm.def("overloaded5", [](py::array_t<double>) { return "double"; });
 
+    // sm.def("overloaded6", [](py::buffer) { return "buffer"; });
+    sm.def("overloaded6", [](py::dtype) { return "dtype"; });
+    // sm.def("overloaded6", [](py::list) { return "list"; });
+    sm.def("overloaded6", [](std::string) { return "string"; });
+
     // test_greedy_string_overload
     // Issue 685: ndarray shouldn't go to std::string overload
     sm.def("issue685", [](std::string) { return "string"; });

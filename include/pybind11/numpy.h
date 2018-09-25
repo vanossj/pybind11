@@ -22,6 +22,7 @@
 #include <utility>
 #include <vector>
 #include <typeindex>
+#include <iostream>
 
 #if defined(_MSC_VER)
 #  pragma warning(push)
@@ -414,7 +415,8 @@ NAMESPACE_END(detail)
 
 class dtype : public object {
 public:
-    PYBIND11_OBJECT_DEFAULT(dtype, object, detail::npy_api::get().PyArrayDescr_Check_);
+    PYBIND11_OBJECT_CVT(dtype, object, detail::npy_api::get().PyArrayDescr_Check_, raw_dtype);
+    dtype() : object() { }
 
     explicit dtype(const buffer_info &info) {
         dtype descr(_dtype_from_pep3118()(PYBIND11_STR_TYPE(info.format)));
@@ -439,9 +441,8 @@ public:
 
     /// This is essentially the same as calling numpy.dtype(args) in Python.
     static dtype from_args(object args) {
-        PyObject *ptr = nullptr;
-        if (!detail::npy_api::get().PyArray_DescrConverter_(args.ptr(), &ptr) || !ptr)
-            throw error_already_set();
+        py::print("dtype_from_args");
+        PyObject *ptr = raw_dtype(args.ptr());
         return reinterpret_steal<dtype>(ptr);
     }
 
@@ -503,6 +504,17 @@ private:
             offsets.append(descr.offset);
         }
         return dtype(names, formats, offsets, itemsize);
+    }
+
+    static PyObject *raw_dtype(PyObject * args) {
+        PyObject *ptr = nullptr;
+        // py::object x = reinterpret_borrow<args>();
+
+        py::print("trying to convert to dtype from ", py::repr(args));
+        if (!detail::npy_api::get().PyArray_DescrConverter_(args, &ptr) || !ptr)
+            throw error_already_set();
+        py::print("\tsuccessfully converted to dtype");
+        return ptr;
     }
 };
 

@@ -315,6 +315,13 @@ def test_overload_resolution(msg):
     assert m.overloaded5(np.array([1], dtype='uintc')) == 'unsigned int'
     assert m.overloaded5(np.array([1], dtype='float32')) == 'unsigned int'
 
+def test_dtype_conversion():
+    print("starting test")
+    # assert m.overloaded6(np.float32(1)) == 'buffer'
+    assert m.overloaded6('float32') == 'dtype'
+    # assert m.overloaded6('not_a_valid_dtype_string') == 'string'
+    # assert m.overloaded6(np.dtype(np.float32)) == 'dtype'
+
 
 def test_greedy_string_overload():
     """Tests fix for #685 - ndarray shouldn't go to std::string overload"""
