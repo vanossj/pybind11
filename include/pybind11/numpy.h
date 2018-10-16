@@ -588,7 +588,12 @@ public:
 
     /// Array descriptor (dtype)
     pybind11::dtype dtype() const {
-        return reinterpret_borrow<pybind11::dtype>(detail::array_proxy(m_ptr)->descr);
+        const auto &api = detail::npy_api::get();
+        if (api.PyArray_Check_(m_ptr)) {
+            return reinterpret_borrow<pybind11::dtype>(detail::array_proxy(m_ptr)->descr);
+        } else {
+            return reinterpret_steal<pybind11::dtype>(api.PyArray_DescrFromScalar_(m_ptr));
+        }
     }
 
     /// Total number of elements
@@ -598,7 +603,12 @@ public:
 
     /// Byte size of a single element
     ssize_t itemsize() const {
-        return detail::array_descriptor_proxy(detail::array_proxy(m_ptr)->descr)->elsize;
+        const auto &api = detail::npy_api::get();
+        if (api.PyArray_Check_(m_ptr)) {
+            return detail::array_descriptor_proxy(detail::array_proxy(m_ptr)->descr)->elsize;
+        } else {
+            return reinterpret_steal<pybind11::dtype>(api.PyArray_DescrFromScalar_(m_ptr)).itemsize();
+        }
     }
 
     /// Total number of bytes
@@ -608,17 +618,34 @@ public:
 
     /// Number of dimensions
     ssize_t ndim() const {
-        return detail::array_proxy(m_ptr)->nd;
+        const auto &api = detail::npy_api::get();
+        if (api.PyArray_Check_(m_ptr)) {
+            return detail::array_proxy(m_ptr)->nd;
+        } else {
+            return 0;
+        }
     }
 
     /// Base object
     object base() const {
-        return reinterpret_borrow<object>(detail::array_proxy(m_ptr)->base);
+        const auto &api = detail::npy_api::get();
+        if (api.PyArray_Check_(m_ptr)) {
+            return reinterpret_borrow<object>(detail::array_proxy(m_ptr)->base);
+        } else if(PyObject_TypeCheck(m_ptr, api.PyVoidArrType_Type_)) {
+            return reinterpret_borrow<object>(reinterpret_cast<detail::PyVoidScalarObject_Proxy*>(m_ptr)->base);
+        } else {
+            return none();
+        }
     }
 
     /// Dimensions of the array
     const ssize_t* shape() const {
-        return detail::array_proxy(m_ptr)->dimensions;
+        const auto &api = detail::npy_api::get();
+        if (api.PyArray_Check_(m_ptr)) {
+            return detail::array_proxy(m_ptr)->dimensions;
+        } else {
+            return nullptr;
+        }
     }
 
     /// Dimension along a given axis
@@ -630,7 +657,12 @@ public:
 
     /// Strides of the array
     const ssize_t* strides() const {
-        return detail::array_proxy(m_ptr)->strides;
+        const auto &api = detail::npy_api::get();
+        if (api.PyArray_Check_(m_ptr)) {
+            return detail::array_proxy(m_ptr)->strides;
+        } else {
+            return nullptr;
+        }
     }
 
     /// Stride along a given axis
@@ -642,23 +674,47 @@ public:
 
     /// Return the NumPy array flags
     int flags() const {
-        return detail::array_proxy(m_ptr)->flags;
+        const auto &api = detail::npy_api::get();
+        if (api.PyArray_Check_(m_ptr)) {
+            return detail::array_proxy(m_ptr)->flags;
+        } else if(PyObject_TypeCheck(m_ptr, api.PyVoidArrType_Type_)) {
+            return reinterpret_cast<detail::PyVoidScalarObject_Proxy*>(m_ptr)->flags;
+        } else {
+            return detail::npy_api::NPY_ARRAY_C_CONTIGUOUS_ | detail::npy_api::NPY_ARRAY_F_CONTIGUOUS_
+                    | detail::npy_api::NPY_ARRAY_OWNDATA_ | detail::npy_api::NPY_ARRAY_ALIGNED_;
+        }
     }
 
     /// If set, the array is writeable (otherwise the buffer is read-only)
     bool writeable() const {
-        return detail::check_flags(m_ptr, detail::npy_api::NPY_ARRAY_WRITEABLE_);
+        const auto &api = detail::npy_api::get();
+        if (api.PyArray_Check_(m_ptr)) {
+            return detail::check_flags(m_ptr, detail::npy_api::NPY_ARRAY_WRITEABLE_);
+        } else {
+            return false;
+        }
     }
 
     /// If set, the array owns the data (will be freed when the array is deleted)
     bool owndata() const {
-        return detail::check_flags(m_ptr, detail::npy_api::NPY_ARRAY_OWNDATA_);
+        const auto &api = detail::npy_api::get();
+        if (api.PyArray_Check_(m_ptr)) {
+            return detail::check_flags(m_ptr, detail::npy_api::NPY_ARRAY_OWNDATA_);
+        } else {
+            return true;
+        }
     }
 
     /// Pointer to the contained data. If index is not provided, points to the
     /// beginning of the buffer. May throw if the index would lead to out of bounds access.
     template<typename... Ix> const void* data(Ix... index) const {
-        return static_cast<const void *>(detail::array_proxy(m_ptr)->data + offset_at(index...));
+        const auto &api = detail::npy_api::get();
+        if (api.PyArray_Check_(m_ptr)) {
+            return static_cast<const void *>(detail::array_proxy(m_ptr)->data + offset_at(index...));
+        } else {
+            //accessing address of obval is valid for all Py*ScalarObject types, even though obval type differs
+            return static_cast<const void *>(reinterpret_cast<detail::PyVoidScalarObject_Proxy*>(m_ptr)->obval + offset_at(index...));
+        }
     }
 
     /// Mutable pointer to the contained data. If index is not provided, points to the
@@ -715,22 +771,31 @@ public:
     /// Return a new view with all of the dimensions of length 1 removed
     array squeeze() {
         auto& api = detail::npy_api::get();
-        return reinterpret_steal<array>(api.PyArray_Squeeze_(m_ptr));
+        if (api.PyArray_Check_(m_ptr)) {
+            return reinterpret_steal<array>(api.PyArray_Squeeze_(m_ptr));
+        } else {
+            return *this;
+        }
     }
 
     /// Resize array to given shape
     /// If refcheck is true and more that one reference exist to this array
     /// then resize will succeed only if it makes a reshape, i.e. original size doesn't change
     void resize(ShapeContainer new_shape, bool refcheck = true) {
-        detail::npy_api::PyArray_Dims d = {
-            new_shape->data(), int(new_shape->size())
-        };
-        // try to resize, set ordering param to -1 cause it's not used anyway
-        object new_array = reinterpret_steal<object>(
-            detail::npy_api::get().PyArray_Resize_(m_ptr, &d, int(refcheck), -1)
-        );
-        if (!new_array) throw error_already_set();
-        if (isinstance<array>(new_array)) { *this = std::move(new_array); }
+        auto& api = detail::npy_api::get();
+        if (api.PyArray_Check_(m_ptr)) {
+            detail::npy_api::PyArray_Dims d = {
+                new_shape->data(), int(new_shape->size())
+            };
+            // try to resize, set ordering param to -1 cause it's not used anyway
+            object new_array = reinterpret_steal<object>(
+                detail::npy_api::get().PyArray_Resize_(m_ptr, &d, int(refcheck), -1)
+            );
+            if (!new_array) throw error_already_set();
+            if (isinstance<array>(new_array)) { *this = std::move(new_array); }
+        } else if (!new_shape->empty()) {
+            throw std::domain_error("array-scalars cannot be resized");
+        }
     }
 
     /// Ensure that the argument is a NumPy array
